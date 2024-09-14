@@ -1,5 +1,5 @@
 import logging
-import azure.functions as func  # Import necessário para Azure Functions
+import azure.functions as func
 import os
 import json
 import pandas as pd
@@ -10,22 +10,28 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 
 app = func.FunctionApp()
 
 # Função para gerar e salvar o gráfico
 def gerar_grafico(df):
     plt.figure(figsize=(10, 5))
-    plt.plot(df['dataHoraUTC'], df['temperatura'], label='Temperatura (C)', color='orange')
-    plt.plot(df['dataHoraUTC'], df['umidade'], label='Umidade (%)', color='blue')
+
+    # Plotar temperatura e umidade
+    plt.plot(df['dataHoraBRT'], df['temperatura'], label='Temperatura (C)', color='orange')
+    plt.plot(df['dataHoraBRT'], df['umidade'], label='Umidade (%)', color='blue')
+
+    # Definir rótulos e título
     plt.xlabel('Data/Hora')
     plt.ylabel('Valores')
     plt.title('Relatório de Temperatura e Umidade')
     plt.legend()
+
+    ax = plt.gca()
+    ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d %H:%M')) 
     plt.xticks(rotation=45)
     plt.tight_layout()
-
-    # Salvar o gráfico como PNG
     plt.savefig('/tmp/relatorio_grafico.png')
     plt.close()
 
@@ -103,11 +109,25 @@ def report_sent(myTimer: func.TimerRequest) -> None:
             logging.info("Nenhum dado encontrado no CosmosDB.")
             return
 
-        # Criar um DataFrame para tratar os dados
+        # Log dos itens para verificar estrutura
+        logging.info(f"Dados brutos do CosmosDB: {json.dumps(items, indent=4)}")
+
+        # Criar um DataFrame para tratar os dados e converter 'dataHoraUTC' para datetime
         df = pd.DataFrame(items)
-        df['dataHoraUTC'] = df['dataHoraUTC'].dt.tz_convert('America/Sao_Paulo')
-        
-        logging.info(f"Dados recuperados: {df}")
+
+        # Verificando se o campo 'dataHoraUTC' existe
+        if 'dataHoraUTC' not in df.columns:
+            logging.error("A coluna 'dataHoraUTC' não foi encontrada nos dados.")
+            return
+
+        # Converter 'dataHoraUTC' para datetime e definir como UTC
+        df['dataHoraUTC'] = pd.to_datetime(df['dataHoraUTC'], utc=True)
+
+        # Criar nova coluna 'dataHoraBRT' para armazenar o horário em Brasília Time (BRT)
+        df['dataHoraBRT'] = df['dataHoraUTC'].dt.tz_convert('America/Sao_Paulo')
+
+
+        logging.info(f"Dados recuperados e convertidos: {df}")
 
         # Gerar gráfico a partir dos dados
         gerar_grafico(df)
